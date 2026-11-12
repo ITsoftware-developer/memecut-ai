@@ -1,0 +1,72 @@
+[
+  {
+    "id": "faceplant",
+    "title": "Onverwachte val",
+    "tags": ["fail", "val", "ongeluk", "gemist"],
+    "description": "Een vos ligt plat op zijn snuit. Past bij een mislukte sprong, botsing of pijnlijke landing.",
+    "file": "faceplant.png"
+  },
+  {
+    "id": "jumpscare",
+    "title": "Schrikreactie",
+    "tags": ["schrik", "jumpscare", "verrassing", "gevaar"],
+    "description": "Een spook schrikt met wijdopen ogen. Past wanneer iets plotseling opduikt.",
+    "file": "jumpscare.png"
+  },
+  {
+    "id": "facepalm",
+    "title": "Facepalm",
+    "tags": ["cringe", "blunder", "spijt", "fail"],
+    "description": "Een axolotl bedekt zijn gezicht. Past bij een vermijdbare blunder of gênante beslissing.",
+    "file": "facepalm.png"
+  },
+  {
+    "id": "victory",
+    "title": "Overwinning",
+    "tags": ["winst", "clutch", "record", "succes"],
+    "description": "Een juichende kat houdt een trofee omhoog. Past bij een beslissende overwinning of een gehaald doel.",
+    "file": "victory.png"
+  },
+  {
+    "id": "double-take",
+    "title": "Dubbele blik",
+    "tags": ["ongeloof", "verwarring", "absurd", "bug"],
+    "description": "Een kameleon kijkt verbaasd naar voren. Past bij een vreemde uitkomst die om een tweede blik vraagt.",
+    "file": "double-take.png"
+  },
+  {
+    "id": "laugh",
+    "title": "Lachbui",
+    "tags": ["lachen", "grap", "chaos", "reactie"],
+    "description": "Een kikker schiet in de lach. Past bij een zichtbare grap of hoorbaar gelach.",
+    "file": "laugh.png"
+  },
+  {
+    "id": "dead-silence",
+    "title": "Ongemakkelijke stilte",
+    "tags": ["stilte", "ongemakkelijk", "anticlimax", "pauze"],
+    "description": "Een schedeltje staart met een vlakke mond. Past bij de stilte direct na een mislukte grap of onverwachte anticlimax.",
+    "file": "dead-silence.png"
+  },
+  {
+    "id": "side-eye",
+    "title": "Scheve blik",
+    "tags": ["verdacht", "twijfel", "sceptisch", "valstrik"],
+    "description": "Een rode panda kijkt argwanend opzij. Past bij verdacht gedrag, een valstrik of een ongeloofwaardige uitleg.",
+    "file": "side-eye.png"
+  },
+  {
+    "id": "sweat",
+    "title": "Zweetdruppel",
+    "tags": ["spanning", "bijna", "stress", "ontsnapping"],
+    "description": "Een pinguïn zweet en klemt zijn tanden op elkaar. Past bij een spannend moment waarop het bijna misgaat.",
+    "file": "sweat.png"
+  },
+  {
+    "id": "lucky-break",
+    "title": "Gelukstreffer",
+    "tags": ["geluk", "toeval", "meevaller", "redding"],
+    "description": "Een glimlachend konijn houdt een klavertje vier vast. Past bij een toevallige redding of onverwachte meevaller.",
+    "file": "lucky-break.png"
+  }
+]

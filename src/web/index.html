@@ -71,6 +71,7 @@
             <div class="screen" id="screen">
               <img id="demo-image" src="./assets/lava.png" alt="Minecraft-demobeeld met een lavapoel en een diamanten houweel">
               <video id="player-video" playsinline preload="metadata" hidden></video>
+              <img class="meme-overlay" id="meme-overlay" alt="" hidden>
               <span class="caption-overlay" id="preview-caption" aria-hidden="true"></span>
             </div>
             <div class="stage-tags"><span id="screen-tag" class="screen-tag"><span></span>DEMO</span></div>
@@ -110,6 +111,7 @@
         <div class="panel-heading timeline-heading">
           <h2 id="timeline-title"><span data-icon="layers" data-size="16"></span>Tijdlijn</h2>
           <div class="timeline-options">
+            <button class="button add-moment" id="edit-cuts"><span data-icon="scissors" data-size="15"></span><span>Cuts</span></button>
             <button class="button add-moment" id="add-moment"><span data-icon="plus" data-size="15"></span><span>Moment toevoegen</span></button>
             <div class="timeline-zoom" aria-label="Tijdlijnzoom">
               <button class="icon-button" id="timeline-zoom-out" aria-label="Uitzoomen" title="Uitzoomen"><span data-icon="zoom-out" data-size="16"></span></button>
@@ -129,7 +131,7 @@
           <div class="timeline-scroll" id="timeline-scroll">
             <div class="timeline-content" id="timeline-content">
               <div id="timeline-ruler" class="ruler" role="slider" tabindex="0" aria-label="Afspeelpositie" aria-valuemin="0" aria-valuemax="312" aria-valuenow="12.8"></div>
-              <div class="track gameplay-track" id="gameplay-track"><div class="gameplay-strip" id="gameplay-strip"><span data-icon="film" data-size="14"></span><span id="gameplay-label">minecraft-lava-run.mp4</span></div></div>
+              <div class="track gameplay-track" id="gameplay-track"><div class="gameplay-strip" id="gameplay-strip"><span data-icon="film" data-size="14"></span><span id="gameplay-label">minecraft-lava-run.mp4</span></div><div id="cut-regions" aria-hidden="true"></div></div>
               <div class="track" id="meme-track"></div>
               <div class="track" id="text-track"></div>
               <div class="track" id="sound-track"></div>
@@ -144,7 +146,7 @@
 
   <dialog id="import-dialog" aria-labelledby="import-title">
     <div class="dialog-heading"><h2 id="import-title">Gameplay importeren</h2><button class="icon-button" data-close aria-label="Sluiten"><span data-icon="x"></span></button></div>
-    <p>Kies een gameplayvideo van 2–10 minuten. In dit prototype worden video en geluid lokaal verwerkt.</p>
+    <p>Kies een gameplayvideo van 2–10 minuten. De bronvideo blijft lokaal. Bij AI-analyse gaan audio en geselecteerde beelden naar OpenAI.</p>
     <label class="dropzone" id="dropzone">
       <span class="drop-icon" data-icon="upload" data-size="25"></span>
       <strong id="drop-label">Kies een video of sleep hem hierheen</strong>
@@ -156,7 +158,7 @@
 
   <dialog id="library-dialog" aria-labelledby="library-title">
     <div class="dialog-heading"><h2 id="library-title">Memebibliotheek</h2><button class="icon-button" data-close aria-label="Sluiten"><span data-icon="x"></span></button></div>
-    <p>Vijf reactiepresets met geanimeerde tekst, zoom en een eigen geluidseffect.</p>
+    <p>Kies een originele reactiesticker in een montagemoment om deze als overlay of beeldvullende reactie te gebruiken.</p>
     <div class="library-list" id="library-list"></div>
   </dialog>
 
@@ -164,11 +166,15 @@
     <div class="dialog-heading"><h2 id="moment-title">Moment aanpassen</h2><button class="icon-button" data-close aria-label="Sluiten"><span data-icon="x"></span></button></div>
     <p id="moment-description"></p>
     <form id="moment-form">
-      <label>Reactiepreset<select id="preset-select"></select></label>
-      <label>Tekst in beeld<input id="caption-input" type="text" maxlength="48" autocomplete="off"></label>
       <div class="form-row">
-        <label>Start (seconden)<input id="moment-start" type="number" min="0" step="0.1" required></label>
-        <label>Duur (seconden)<input id="moment-duration" type="number" min="0.2" max="10" step="0.1" required></label>
+        <label>Memeafbeelding<select id="meme-select"></select></label>
+        <label>Weergave<select id="meme-mode"><option value="overlay">Overlay</option><option value="cutaway">Beeldvullende reactie</option></select></label>
+      </div>
+      <label>Effectpreset<select id="preset-select"></select></label>
+      <label>Tekst in beeld<input id="caption-input" type="text" maxlength="60" autocomplete="off"></label>
+      <div class="form-row">
+        <label>Start (seconden)<input id="moment-start" type="number" min="0" step="any" required></label>
+        <label>Duur (seconden)<input id="moment-duration" type="number" min="0.2" max="5" step="any" required></label>
       </div>
       <div class="form-row checkbox-row">
         <label><input id="sound-enabled" type="checkbox"> Geluidseffect</label>
@@ -176,6 +182,20 @@
       </div>
       <p class="dialog-status" id="moment-status" role="status"></p>
       <div class="dialog-actions"><button class="button subtle" type="button" data-close>Annuleren</button><button class="button primary" type="submit">Opslaan</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="cuts-dialog" aria-labelledby="cuts-title">
+    <div class="dialog-heading"><h2 id="cuts-title">Gameplayfragmenten</h2><button class="icon-button" data-close aria-label="Sluiten"><span data-icon="x"></span></button></div>
+    <p>Behoud maximaal zes fragmenten. Tijden zijn seconden vanaf het begin van de bronvideo. De montage slaat de tussenruimte over.</p>
+    <form id="cuts-form">
+      <div id="segment-list" class="segment-list"></div>
+      <p class="dialog-status" id="cuts-status" role="status"></p>
+      <div class="dialog-actions">
+        <button class="button subtle" type="button" id="reset-cuts">Hele bron behouden</button>
+        <button class="button subtle" type="button" id="split-cut">Fragment splitsen</button>
+        <button class="button primary" type="submit">Cuts opslaan</button>
+      </div>
     </form>
   </dialog>
 
@@ -187,13 +207,14 @@
     <div class="dialog-actions export-actions">
       <button class="button subtle" id="download-plan"><span data-icon="download" data-size="16"></span>Montageplan (.json)</button>
       <button class="button primary" id="render-video"><span data-icon="film" data-size="16"></span><span id="render-label">Video renderen</span></button>
+      <a class="button primary" id="download-mp4" hidden><span data-icon="download" data-size="16"></span>MP4 downloaden</a>
       <button class="button subtle" id="cancel-render" hidden>Render annuleren</button>
     </div>
   </dialog>
 
   <dialog id="help-dialog" aria-labelledby="help-title">
     <div class="dialog-heading"><h2 id="help-title">Hulp &amp; sneltoetsen</h2><button class="icon-button" data-close aria-label="Sluiten"><span data-icon="x"></span></button></div>
-    <p>De Minecraft-demo gebruikt een stilstaand beeld en vier vooraf ingestelde edits. Bij eigen gameplay stelt dit prototype momenten voor op basis van audiopieken. Je kunt momenten aanpassen, uitschakelen en exporteren.</p>
+    <p>De Minecraft-demo gebruikt een stilstaand beeld en vier voorbeeldedits. Met een ingestelde AI-server kiest de regisseur edits op basis van transcript en frames. Pas zelf memes en cuts aan en exporteer via FFmpeg.</p>
     <dl class="shortcuts"><dt><kbd>Spatie</kbd></dt><dd>Afspelen of pauzeren</dd><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Door de tijdlijn bewegen</dd><dt><kbd>Esc</kbd></dt><dd>Dialoog sluiten</dd></dl>
   </dialog>
   <div class="toast" id="toast" role="status" hidden></div>

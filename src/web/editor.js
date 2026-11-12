@@ -7,7 +7,10 @@
   const ruler = $('timeline-ruler');
   const timeline = $('timeline-content');
   const demoName = 'minecraft-lava-run.mp4';
+  const demoMemes = { lava: 'faceplant', shot: 'facepalm', laugh: 'laugh', clutch: 'victory' };
   const demoDescription = 'Zo is de demo gemonteerd. Kies een moment om de edit te bekijken.';
+  let server = { available: false, ai: false };
+  let memeCatalog = new Map();
   let project;
   let playing = false;
   let muted = false;
@@ -28,6 +31,81 @@
   let draftPreset;
   let emptyMessage = '';
   const zooms = [1, 2, 4, 8];
+  const wholeSource = duration => [{ start: 0, end: duration }];
+  const insideSegment = (moment, segments) => segments.some(segment =>
+    moment.time >= segment.start - 1e-6 && moment.time + moment.duration <= segment.end + 1e-6);
+  const memeUrl = item => './assets/memes/' + encodeURIComponent(item.file);
+
+  async function api(path, options) {
+    const response = await fetch(path, options);
+    if (response.status === 204) return;
+    const data = await response.json();
+    if (!response.ok) throw Object.assign(new Error(data.error), { code: data.code });
+    return data;
+  }
+
+  async function loadCapabilities() {
+    if (!['http:', 'https:'].includes(location.protocol)) return;
+    let entries;
+    try {
+      const status = await api('/api/status');
+      if (status.version === '0.2') {
+        server = { ...status, available: true };
+        entries = status.catalog;
+      }
+    } catch {
+      // A static build still supports local playback and the meme catalogue.
+    }
+    if (!entries) {
+      try {
+        const response = await fetch('./assets/memes/catalog.json');
+        if (response.ok) entries = await response.json();
+      } catch {
+        // Leave the original effect presets available.
+      }
+    }
+    if (Array.isArray(entries)) memeCatalog = new Map(entries.map(item => [item.id, item]));
+    renderLibrary();
+    if (project.demo) {
+      project.moments = project.moments.map(moment => moment.edited ? moment : { ...moment, memeId: demoMemes[moment.id] });
+      renderMoments();
+      renderTimeline();
+    }
+    if (!analysis) updateDirector();
+  }
+
+  async function serverOperation(target, action, plan, signal) {
+    if (target.file.size > server.maxUpload) throw new Error('Voor FFmpeg en AI mag de bronvideo maximaal 256 MiB groot zijn.');
+    async function upload() {
+      const result = await api('/api/projects', {
+        method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: target.file, signal,
+      });
+      target.serverId = result.id;
+      target.serverDuration = result.media.duration;
+    }
+    function run() {
+      let body = plan;
+      // Container and video stream metadata can differ by an audio frame.
+      if (plan && target.duration > target.serverDuration && target.duration - target.serverDuration < .15) {
+        body = {
+          segments: plan.segments.map(segment => ({ ...segment, end: Math.min(segment.end, target.serverDuration) })),
+          edits: plan.edits.map(edit => ({ ...edit, duration: Math.min(edit.duration, target.serverDuration - edit.time) })),
+        };
+      }
+      return api('/api/projects/' + target.serverId + '/' + action, {
+        method: 'POST', signal,
+        ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
+      });
+    }
+    if (!target.serverId) await upload();
+    try {
+      return await run();
+    } catch (error) {
+      if (error.code !== 'project_missing') throw error;
+      await upload();
+      return run();
+    }
+  }
 
   function escapeHtml(value) {
     return String(value).replace(/[&<>"']/g, char => ({
@@ -107,8 +185,14 @@
     const moment = original ? null : workflow.getActiveMoment(project.moments, current);
     const isStill = moment && !playing;
     const effect = workflow.getEffectFrame(moment, isStill ? Math.max(moment.time + .17, current) : current);
-    $('screen').style.setProperty('--screen-zoom', effect.zoom);
-    $('screen').style.setProperty('--caption-pop', effect.pop);
+    const screen = $('screen');
+    screen.style.setProperty('--screen-zoom', effect.zoom);
+    screen.style.setProperty('--caption-pop', effect.pop);
+    const meme = memeCatalog.get(moment?.memeId);
+    const overlay = $('meme-overlay');
+    overlay.hidden = !meme;
+    if (meme && overlay.getAttribute('src') !== memeUrl(meme)) overlay.src = memeUrl(meme);
+    screen.dataset.cutaway = String(Boolean(meme && moment.mode === 'cutaway'));
     const caption = $('preview-caption');
     caption.textContent = moment?.caption ?? '';
     caption.hidden = !moment?.caption;
@@ -130,6 +214,15 @@
   function playbackTick(now) {
     if (!playing) return;
     current = Math.min(project.duration, project.demo ? playbackTime + (now - playbackStart) / 1000 : video.currentTime);
+    if (!original && !project.segments.some(segment => current >= segment.start && current < segment.end)) {
+      const next = project.segments.find(segment => segment.start > current);
+      if (next) seek(next.start);
+      else {
+        seek(project.segments.at(-1).end);
+        stopPlayback();
+        return;
+      }
+    }
     if (!muted && !original) {
       for (const moment of project.moments) {
         if (moment.enabled && moment.time >= previousTick && moment.time < current) playEffect(moment.sound);
@@ -148,7 +241,10 @@
       paintPlayhead();
       return;
     }
-    if (current >= project.duration) seek(0);
+    if (original && current >= project.duration) seek(0);
+    if (!original && !project.segments.some(segment => current >= segment.start && current < segment.end)) {
+      seek((project.segments.find(segment => segment.start > current) ?? project.segments[0]).start);
+    }
     if (!muted) unlockAudio();
     const startingProject = project;
     playing = true;
@@ -187,11 +283,13 @@
     $('moments-count').textContent = count + (count === 1 ? ' moment' : ' momenten');
     list.innerHTML = count ? project.moments.map(moment => {
       const preset = workflow.getPreset(moment.presetId);
+      const meme = memeCatalog.get(moment.memeId);
       const selected = moment.id === selectedId;
-      const detail = !moment.enabled ? 'Uitgeschakeld' : moment.caption ? preset.title + ' · ' + (moment.sound ? 'Zoom + SFX' : 'Zoom') : 'Volumestijging';
+      const detail = !moment.enabled ? 'Uitgeschakeld' : meme ? meme.title + (moment.mode === 'cutaway' ? ' · Beeldvullend' : ' · Overlay') : moment.caption ? preset.title + ' · ' + (moment.sound ? 'Zoom + SFX' : 'Zoom') : 'Volumestijging';
+      const art = meme ? '<img src="' + memeUrl(meme) + '" alt="">' : preset.emoji;
       return '<div class="moment-card' + (selected ? ' selected' : '') + (moment.enabled ? '' : ' off') + '">' +
         '<button class="moment-main" data-jump="' + escapeHtml(moment.id) + '" aria-pressed="' + selected + '">' +
-        '<span class="moment-emoji" style="--preset:' + preset.color + '" aria-hidden="true">' + preset.emoji + '</span>' +
+        '<span class="moment-emoji" style="--preset:' + preset.color + '" aria-hidden="true">' + art + '</span>' +
         '<span class="moment-info"><strong><span class="moment-name">' + escapeHtml(moment.title) + '</span><time>' + timestamp(moment.time, true) + '</time></strong>' +
         '<small>' + escapeHtml(detail) + '</small></span></button>' +
         '<button class="icon-button moment-config" data-edit="' + escapeHtml(moment.id) + '" aria-label="' + escapeHtml(moment.title) + ' aanpassen" title="Moment aanpassen">' + window.icon('sliders', 14) + '</button></div>';
@@ -199,7 +297,7 @@
   }
 
   const tracks = [
-    { id: 'meme-track', icon: 'sparkles', colors: ['#4a3268', '#8060ab', '#eedcff'], label: moment => moment.caption ? workflow.getPreset(moment.presetId).title : 'Audiopiek' },
+    { id: 'meme-track', icon: 'sparkles', colors: ['#4a3268', '#8060ab', '#eedcff'], label: moment => memeCatalog.get(moment.memeId)?.title ?? (moment.caption ? workflow.getPreset(moment.presetId).title : 'Audiopiek') },
     { id: 'text-track', icon: 'type', colors: ['#64304f', '#9b547e', '#ffd8ed'], label: moment => moment.caption },
     { id: 'sound-track', icon: 'waveform', colors: ['#264952', '#467687', '#d1f5ff'], label: moment => moment.sound ? 'SFX' : '' },
   ];
@@ -220,6 +318,13 @@
     $('timeline-zoom-in').disabled = zoomIndex === zooms.length - 1;
     timeline.style.width = zoom * 100 + '%';
     timeline.dataset.demo = String(project.demo);
+    let startGap = 0;
+    const gaps = [];
+    for (const segment of [...project.segments, { start: project.duration, end: project.duration }]) {
+      if (segment.start > startGap) gaps.push('<span class="cut-region" style="left:' + startGap / project.duration * 100 + '%;width:' + (segment.start - startGap) / project.duration * 100 + '%"></span>');
+      startGap = segment.end;
+    }
+    $('cut-regions').innerHTML = gaps.join('');
     for (const track of tracks) {
       const [bg, border, text] = track.colors;
       $(track.id).innerHTML = project.moments.map(moment => {
@@ -247,20 +352,29 @@
     $('demo-image').hidden = !project.demo;
     $('screen-tag').hidden = !project.demo;
     video.hidden = project.demo;
-    $('director-intro').textContent = project.demo ? demoDescription : 'Zoek op audiopieken en kies per moment een passende reactie.';
-    $('analyze-label').textContent = project.demo ? 'Eigen gameplay analyseren' : 'Audiopieken analyseren';
-    $('analyze').disabled = false;
+    updateDirector();
     setStatus(statusForProject());
     renderMoments();
     renderTimeline();
+  }
+
+  function updateDirector() {
+    $('director-intro').textContent = project.demo ? demoDescription : server.ai
+      ? 'De regisseur gebruikt transcript en geselecteerde frames. Bij analyse gaan audio en beelden naar OpenAI.'
+      : 'Lokaal kun je audiopieken zoeken. Stel op de server een API-sleutel in voor de AI-regisseur.';
+    $('analyze-label').textContent = project.demo ? 'Eigen gameplay analyseren' : server.ai ? 'AI-montage maken' : 'Audiopieken analyseren';
+    $('analyze').disabled = false;
   }
 
   function loadProject(next, time, id) {
     stopPlayback();
     analysis?.abort();
     analysis = null;
+    rendering?.abort();
+    if (project?.serverId) void api('/api/projects/' + project.serverId, { method: 'DELETE' }).catch(() => {});
     if (project?.source) URL.revokeObjectURL(project.source);
     project = next;
+    project.segments ??= wholeSource(next.duration);
     if (next.source) video.src = next.source;
     else video.removeAttribute('src');
     video.load();
@@ -277,7 +391,7 @@
     const demo = workflow.demo;
     loadProject({
       demo: true, title: 'Minecraft, maar alles gaat mis', filename: demoName,
-      duration: demo.duration, landscape: true, moments: demo.moments.map(moment => ({ ...moment })),
+      duration: demo.duration, landscape: true, moments: demo.moments.map(moment => ({ ...moment, memeId: demoMemes[moment.id], mode: 'overlay' })),
     }, demo.currentTime, demo.selectedId);
   }
 
@@ -349,7 +463,6 @@
         filename: file.name, source, duration, landscape: Math.abs(width / height - 16 / 9) < .06, file, moments: [],
       }, 0, null);
       $('import-dialog').close();
-      void analyzeGameplay();
     } catch (error) {
       URL.revokeObjectURL(source);
       if (attempt === importId) $('import-status').textContent = error.message;
@@ -361,33 +474,47 @@
       openImport();
       return;
     }
+    if (analysis || rendering) return;
     const controller = new AbortController();
+    const target = project;
     analysis = controller;
     $('analyze').disabled = true;
-    $('analyze-label').textContent = 'Audio analyseren…';
-    setStatus('Audio wordt lokaal geanalyseerd');
+    $('analyze-label').textContent = server.ai ? 'AI-montage maken…' : 'Audio analyseren…';
+    setStatus(server.ai ? 'Transcript en gameplaybeelden worden geanalyseerd' : 'Audio wordt lokaal geanalyseerd');
     try {
-      const result = await workflow.analyzeVideo(project.file, project.duration, { signal: controller.signal });
-      if (analysis !== controller) return;
-      const keptMoments = project.moments.filter(moment => !moment.id.startsWith('audio-') || moment.edited);
-      const occupied = new Set(keptMoments.map(moment => moment.id));
-      const candidates = result.moments.filter(moment => !occupied.has(moment.id));
-      project.moments = [...keptMoments, ...candidates].sort((a, b) => a.time - b.time);
-      emptyMessage = result.message;
+      if (server.ai) {
+        const { plan } = await serverOperation(target, 'analyze', null, controller.signal);
+        if (analysis !== controller) return;
+        project.segments = plan.segments;
+        project.moments = plan.edits.map((edit, index) => {
+          const meme = memeCatalog.get(edit.memeId);
+          const presetId = meme.tags.some(tag => tag === 'winst' || tag === 'succes') ? 'victory' :
+            meme.tags.includes('lachen') ? 'laugh' : 'dramatic';
+          return { ...edit, id: 'ai-' + (index + 1), title: meme.title, presetId, enabled: true, sound: edit.sound ? presetId : null };
+        });
+        emptyMessage = plan.edits.length ? 'AI-montage klaar · ' + timestamp(plan.outputDuration) : 'De AI vond geen geschikte meme. Je kunt zelf een moment toevoegen.';
+      } else {
+        const result = await workflow.analyzeVideo(project.file, project.duration, { signal: controller.signal });
+        if (analysis !== controller) return;
+        const keptMoments = project.moments.filter(moment => !moment.id.startsWith('audio-') || moment.edited);
+        const candidates = result.moments.filter(moment => insideSegment(moment, project.segments) &&
+          !keptMoments.some(kept => kept.id === moment.id || kept.enabled && momentsOverlap(moment, kept)));
+        project.moments = [...keptMoments, ...candidates].sort((a, b) => a.time - b.time);
+        emptyMessage = result.message;
+      }
       if (project.moments.length) jumpTo(project.moments[0].id);
       else {
         selectedId = null;
         renderMoments();
         renderTimeline();
       }
-      setStatus(result.message);
+      setStatus(emptyMessage);
     } catch (error) {
-      if (analysis === controller) setStatus('De audioanalyse is mislukt. Probeer het opnieuw of voeg een moment toe.');
+      if (analysis === controller) setStatus(server.ai ? error.message : 'De audioanalyse is mislukt. Voeg een moment toe of probeer opnieuw.');
     } finally {
       if (analysis === controller) {
         analysis = null;
-        $('analyze').disabled = false;
-        $('analyze-label').textContent = 'Audiopieken analyseren';
+        updateDirector();
       }
     }
   }
@@ -395,8 +522,10 @@
   function openMoment(moment) {
     stopPlayback();
     const defaultPreset = workflow.presets[0];
+    const segment = project.segments.find(item => current >= item.start && current <= item.end - .2) ?? project.segments[0];
+    const time = current >= segment.start && current <= segment.end - .2 ? current : segment.start;
     draft = moment ?? {
-      id: null, time: Math.min(current, project.duration - .2), duration: Math.min(2, project.duration - current) || .2,
+      id: null, time, duration: Math.max(.2, Math.min(2, segment.end - time)),
       title: 'Eigen moment', reason: 'Handmatig toegevoegd.', presetId: defaultPreset.id,
       caption: defaultPreset.caption, zoom: defaultPreset.zoom, sound: defaultPreset.sound, enabled: true,
     };
@@ -404,14 +533,21 @@
     $('moment-title').textContent = moment?.title ?? 'Moment toevoegen';
     $('moment-description').textContent = draft.reason;
     $('preset-select').value = draft.presetId;
+    $('meme-select').value = memeCatalog.has(draft.memeId) ? draft.memeId : '';
+    $('meme-mode').value = draft.mode || 'overlay';
+    $('meme-mode').disabled = !$('meme-select').value;
     $('caption-input').value = draft.caption;
-    $('moment-start').value = Math.floor(draft.time * 10) / 10;
-    $('moment-start').max = Math.floor((project.duration - .2) * 10) / 10;
-    $('moment-duration').value = Math.max(.2, Math.floor(draft.duration * 10 + .00001) / 10);
+    $('moment-start').value = draft.time;
+    $('moment-start').max = project.duration - .2;
+    $('moment-duration').value = draft.duration;
     $('sound-enabled').checked = Boolean(draft.sound);
     $('moment-enabled').checked = draft.enabled;
     $('moment-status').textContent = '';
     $('moment-dialog').showModal();
+  }
+
+  function momentsOverlap(a, b) {
+    return a.time < b.time + b.duration - 1e-6 && b.time < a.time + a.duration - 1e-6;
   }
 
   function saveMoment(event) {
@@ -423,12 +559,19 @@
       return;
     }
     const preset = workflow.getPreset($('preset-select').value);
+    const memeId = $('meme-select').value || null;
     const item = {
       ...draft, id: draft.id || 'manual-' + Date.now(), time: start, duration, presetId: preset.id,
+      memeId, mode: memeId ? $('meme-mode').value : 'overlay',
       caption: $('caption-input').value.trim(), zoom: preset.id === draft.presetId ? draft.zoom : preset.zoom,
       sound: $('sound-enabled').checked ? preset.sound : null, enabled: $('moment-enabled').checked, edited: true,
     };
-    project.moments = [...project.moments.filter(moment => moment.id !== item.id), item].sort((a, b) => a.time - b.time);
+    const others = project.moments.filter(moment => moment.id !== item.id);
+    if (item.enabled && (!insideSegment(item, project.segments) || others.some(moment => moment.enabled && momentsOverlap(moment, item)))) {
+      $('moment-status').textContent = 'Plaats het moment binnen één bewaard fragment, zonder overlap met een andere edit.';
+      return;
+    }
+    project.moments = [...others, item].sort((a, b) => a.time - b.time);
     $('moment-dialog').close();
     jumpTo(item.id);
     setStatus('Montageplan bijgewerkt');
@@ -438,12 +581,54 @@
   function renderLibrary() {
     $('preset-select').innerHTML = workflow.presets.map(preset =>
       '<option value="' + preset.id + '">' + preset.title + '</option>').join('');
-    $('library-list').innerHTML = workflow.presets.map(preset => (
-      '<div class="library-item"><span class="library-emoji" style="--preset:' + preset.color + '" aria-hidden="true">' + preset.emoji + '</span>' +
-      '<span><strong>' + preset.title + '</strong><small>' + preset.tags.join(' · ') + '</small></span>' +
-      '<button class="icon-button" data-sound="' + preset.sound + '" aria-label="' + preset.title + ' beluisteren" title="Geluid beluisteren">' +
-      window.icon('volume', 16) + '</button></div>'
-    )).join('');
+    const memes = [...memeCatalog.values()];
+    const currentMeme = $('meme-select').value;
+    $('meme-select').innerHTML = '<option value="">Geen</option>' + memes.map(item =>
+      '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.title) + '</option>').join('');
+    if (memeCatalog.has(currentMeme)) $('meme-select').value = currentMeme;
+    $('library-list').innerHTML = memes.length ? memes.map(item =>
+      '<div class="library-item"><img src="' + memeUrl(item) + '" alt=""><span><strong>' + escapeHtml(item.title) +
+      '</strong><small>' + escapeHtml(item.description) + '</small></span></div>').join('') :
+      '<p class="empty-moments">Open de editor via de lokale server om de afbeeldingen te laden.</p>';
+  }
+
+  function setSegmentRows(segments) {
+    $('segment-list').innerHTML = segments.map((segment, index) => '<div class="segment-row"><label>Begin (s)' +
+      '<input type="number" class="segment-start" min="0" step="any" required value="' + segment.start + '"></label><label>Einde (s)' +
+      '<input type="number" class="segment-end" min="0" step="any" required value="' + segment.end + '"></label>' +
+      '<button type="button" class="icon-button" data-remove-segment aria-label="Fragment ' + (index + 1) + ' verwijderen"' +
+      (segments.length === 1 ? ' disabled' : '') + '>' + window.icon('x', 16) + '</button></div>').join('');
+    $('split-cut').disabled = segments.length >= 6;
+  }
+
+  function readSegmentRows() {
+    return [...$('segment-list').querySelectorAll('.segment-row')].map(row => ({
+      start: row.querySelector('.segment-start').valueAsNumber,
+      end: row.querySelector('.segment-end').valueAsNumber,
+    }));
+  }
+
+  function saveCuts(event) {
+    event.preventDefault();
+    const segments = readSegmentRows().sort((a, b) => a.start - b.start);
+    if (segments.some((item, index) => !Number.isFinite(item.start) || !Number.isFinite(item.end) ||
+        item.start < 0 || item.end > project.duration || item.end - item.start < .5 - 1e-6 ||
+        (index && item.start < segments[index - 1].end))) {
+      $('cuts-status').textContent = 'Gebruik fragmenten van minstens een halve seconde, zonder overlap en binnen de bronduur.';
+      return;
+    }
+    if (project.moments.some(moment => moment.enabled && !insideSegment(moment, segments))) {
+      $('cuts-status').textContent = 'Een edit valt in een cut. Verplaats of deactiveer die edit eerst.';
+      return;
+    }
+    project.segments = segments;
+    $('cuts-dialog').close();
+    renderTimeline();
+    setStatus('Cuts opgeslagen · montage ' + timestamp(outputDuration()));
+  }
+
+  function outputDuration() {
+    return project.segments.reduce((total, segment) => total + segment.end - segment.start, 0);
   }
 
   function download(blob, name) {
@@ -463,15 +648,18 @@
 
   function openExport() {
     const format = workflow.getExportFormat();
-    const description = project.demo
-      ? 'Download het montageplan van de demo. Importeer een eigen videobestand om een video te renderen.'
-      : format
-        ? 'Render je video met de actieve tekst, zoom en geluidseffecten. De browser rendert in afspeelsnelheid. Houd dit tabblad open.'
-        : 'Deze browser kan het videobeeld niet opnemen. Je kunt het montageplan downloaden.';
+    const needsServer = project.moments.some(moment => moment.enabled && memeCatalog.has(moment.memeId)) ||
+      outputDuration() < project.duration - 1e-6;
+    let description = 'Deze browser kan het videobeeld niet opnemen. Je kunt het montageplan downloaden.';
+    if (project.demo) description = 'Download het montageplan van de demo. Importeer een eigen videobestand om een video te renderen.';
+    else if (server.available) description = 'FFmpeg rendert de actieve edits en cuts als een MP4. Montageduur ' + timestamp(outputDuration()) + '.';
+    else if (needsServer) description = 'Start de lokale FFmpeg-server om een montage met memeafbeeldingen of cuts te renderen.';
+    else if (format) description = 'Render je video met tekst, zoom en geluidseffecten. De browser rendert in afspeelsnelheid. Houd dit tabblad open.';
     $('export-description').textContent = description;
-    $('render-label').textContent = format ? format.label + ' renderen' : 'Video renderen';
-    $('render-video').hidden = project.demo || !format;
-    $('render-video').disabled = false;
+    $('render-label').textContent = server.available ? 'MP4 renderen' : format ? format.label + ' renderen' : 'Video renderen';
+    $('render-video').hidden = project.demo || (!server.available && (needsServer || !format));
+    $('render-video').disabled = Boolean(analysis || rendering);
+    $('download-mp4').hidden = true;
     $('cancel-render').hidden = true;
     $('export-progress').hidden = true;
     $('export-status').textContent = '';
@@ -480,16 +668,32 @@
 
   function downloadPlan() {
     const plan = {
-      version: 1, source: project.filename, sourceDuration: project.duration,
+      version: 2, source: project.filename, sourceDuration: project.duration,
+      ...exportPlan(),
       demo: project.demo, moments: project.moments.map(({ edited, ...moment }) => moment),
     };
     download(new Blob([JSON.stringify(plan, null, 2)], { type: 'application/json' }), fileStem() + '-montageplan.json');
-    $('export-status').textContent = 'Montageplan gedownload.';
+    $('export-status').textContent = 'Montageplan aangeboden als download.';
+  }
+
+  function exportPlan() {
+    return {
+      segments: project.segments,
+      edits: project.moments.filter(moment => moment.enabled).map(moment => {
+        const memeId = memeCatalog.has(moment.memeId) ? moment.memeId : null;
+        return {
+          time: moment.time, duration: moment.duration, memeId, caption: moment.caption,
+          mode: memeId ? moment.mode || 'overlay' : 'overlay', zoom: moment.zoom,
+          sound: Boolean(moment.sound), reason: moment.reason,
+        };
+      }),
+    };
   }
 
   async function renderVideo() {
-    if (rendering || !project.source) return;
+    if (rendering || analysis || !project.source) return;
     stopPlayback();
+    const target = project;
     const controller = new AbortController();
     rendering = controller;
     const progress = $('export-progress');
@@ -497,8 +701,20 @@
     progress.hidden = false;
     $('render-video').disabled = true;
     $('cancel-render').hidden = false;
+    $('download-mp4').hidden = true;
     $('export-status').textContent = 'Render voorbereiden…';
     try {
+      if (server.available) {
+        progress.removeAttribute('value');
+        $('export-status').textContent = 'FFmpeg rendert de montage…';
+        const result = await serverOperation(target, 'render', exportPlan(), controller.signal);
+        const link = $('download-mp4');
+        link.href = result.download;
+        link.download = fileStem() + '-memecut.mp4';
+        link.hidden = false;
+        $('export-status').textContent = 'MP4 klaar · ' + timestamp(result.duration);
+        return;
+      }
       const result = await workflow.renderVideo({
         source: project.source, duration: project.duration, moments: project.moments, signal: controller.signal,
         onProgress: fraction => {
@@ -507,7 +723,7 @@
         },
       });
       download(result.blob, fileStem() + '-memecut.' + result.extension);
-      $('export-status').textContent = result.label + ' gedownload.';
+      $('export-status').textContent = result.label + ' aangeboden als download.';
     } catch (error) {
       $('export-status').textContent = controller.signal.aborted ? 'Render geannuleerd.' : error.message;
     } finally {
@@ -539,6 +755,34 @@
   $('open-library').addEventListener('click', () => $('library-dialog').showModal());
   $('open-export').addEventListener('click', openExport);
   $('add-moment').addEventListener('click', () => openMoment(null));
+  $('edit-cuts').addEventListener('click', () => {
+    stopPlayback();
+    setSegmentRows(project.segments);
+    $('cuts-status').textContent = '';
+    $('cuts-dialog').showModal();
+  });
+  $('reset-cuts').addEventListener('click', () => setSegmentRows(wholeSource(project.duration)));
+  $('split-cut').addEventListener('click', () => {
+    const segments = readSegmentRows();
+    const currentIndex = segments.findIndex(segment => current - segment.start >= .5 && segment.end - current >= .5);
+    const index = currentIndex >= 0 ? currentIndex : segments.findIndex(segment => segment.end - segment.start >= 1);
+    if (index < 0) {
+      $('cuts-status').textContent = 'Kies een fragment dat minstens één seconde lang is.';
+      return;
+    }
+    const { start, end } = segments[index];
+    const split = currentIndex >= 0 ? current : (start + end) / 2;
+    segments.splice(index, 1, { start, end: split }, { start: split, end });
+    setSegmentRows(segments);
+    $('cuts-status').textContent = '';
+  });
+  $('segment-list').addEventListener('click', event => {
+    const button = event.target.closest('[data-remove-segment]');
+    if (!button) return;
+    const index = [...$('segment-list').children].indexOf(button.closest('.segment-row'));
+    setSegmentRows(readSegmentRows().filter((_, position) => position !== index));
+  });
+  $('cuts-form').addEventListener('submit', saveCuts);
   $('analyze').addEventListener('click', analyzeGameplay);
   $('play-toggle').addEventListener('click', togglePlayback);
   $('previous-moment').addEventListener('click', () => stepMoment(-1));
@@ -581,6 +825,9 @@
     $('caption-input').value = preset.caption;
     $('sound-enabled').checked = true;
   });
+  $('meme-select').addEventListener('change', event => {
+    $('meme-mode').disabled = !event.target.value;
+  });
   $('moment-form').addEventListener('submit', saveMoment);
   $('download-plan').addEventListener('click', downloadPlan);
   $('render-video').addEventListener('click', renderVideo);
@@ -605,10 +852,7 @@
       openMoment(project.moments.find(item => item.id === edit.dataset.edit));
     }
   });
-  $('library-list').addEventListener('click', event => {
-    const button = event.target.closest('[data-sound]');
-    if (button) playEffect(button.dataset.sound);
-  });
+  video.addEventListener('loadedmetadata', () => { if (!project.demo && current) video.currentTime = current; });
   ruler.addEventListener('pointerdown', event => {
     if (event.button !== 0) return;
     ruler.setPointerCapture(event.pointerId);
@@ -631,4 +875,5 @@
   });
   renderLibrary();
   loadDemo();
+  void loadCapabilities();
 })();
