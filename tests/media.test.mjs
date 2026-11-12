@@ -133,6 +133,31 @@ test('a silent source exports with AAC and rejects invalid uploads', {
   await assert.rejects(probeVideo(invalidPath), { code: 'INVALID_VIDEO' });
 });
 
+test('a one-second silent scene includes visual evidence before, during, and after it', {
+  skip: !toolsAvailable && 'Set FFMPEG_PATH and FFPROBE_PATH or add FFmpeg to PATH.',
+}, async context => {
+  const workDir = await fixture(context);
+  const inputPath = join(workDir, 'brief-scene.mp4');
+  command(ffmpeg, [
+    '-f', 'lavfi', '-i', 'color=c=blue:s=160x90:r=30:d=180',
+    '-vf', "drawbox=color=red:t=fill:enable='gte(t,60)*lt(t,61)'",
+    '-c:v', 'libx264', '-threads', '2', '-pix_fmt', 'yuv420p', inputPath,
+  ]);
+
+  const evidence = await extractEvidence({ inputPath, workDir, duration: 180, hasAudio: false });
+  const times = evidence.frames.map(frame => frame.time);
+  assert.ok(times.length <= 12, 'visual evidence must stay within the image budget');
+  assert.deepEqual(times, [...new Set(times)].sort((first, second) => first - second));
+
+  const nearby = evidence.frames.filter(({ time }) => time >= 58.5 && time <= 61.5);
+  const samples = nearby.map(({ path, time }) => ({ time, channels: pixel(path, 0, 0, 0) }));
+  const blue = ({ channels }) => channels[2] > 220 && channels[0] < 25;
+  const red = ({ channels }) => channels[0] > 220 && channels[2] < 25;
+  assert.ok(samples.some(sample => sample.time < 60 && blue(sample)), 'a blue frame must precede the event');
+  assert.ok(samples.some(sample => sample.time >= 60 && sample.time < 61 && red(sample)), 'a red frame must capture the event');
+  assert.ok(samples.some(sample => sample.time >= 61 && blue(sample)), 'a blue frame must follow the event');
+});
+
 test('video packet timestamps recover the duration of a streaming WebM file', {
   skip: !toolsAvailable && 'Set FFMPEG_PATH and FFPROBE_PATH or add FFmpeg to PATH.',
 }, async context => {

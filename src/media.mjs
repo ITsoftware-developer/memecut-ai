@@ -105,6 +105,65 @@ function seconds(value) {
   return value.toFixed(6);
 }
 
+async function findSceneWindows(input, duration, { cwd, signal }) {
+  let report;
+  try {
+    report = await run('ffmpeg', [
+      '-nostdin', ...SOURCE_OPTIONS, '-threads', '2', '-t', seconds(duration), '-i', input,
+      '-map', '0:V:0', '-an', '-filter_threads', '1',
+      '-vf', 'setpts=PTS-STARTPTS,fps=5,scale=160:90:flags=fast_bilinear,scdet,metadata=mode=print:key=lavfi.scd.score:file=-',
+      '-f', 'null', '-',
+    ], { cwd, signal, timeout: 35_000 });
+  } catch (error) {
+    signal?.throwIfAborted();
+    if (error.code !== 'MEDIA_PROCESS_FAILED') throw error;
+    return []; // A slow scan or an FFmpeg build without scdet can still supply distributed frames.
+  }
+
+  const windows = [];
+  for (const match of report.matchAll(/pts_time:(\S+)[ \t]*\r?\nlavfi\.scd\.score=(\S+)/g)) {
+    const time = Number(match[1]);
+    const score = Number(match[2]);
+    if (!Number.isFinite(time) || time < 0 || time >= duration || !Number.isFinite(score) || score < 3) continue;
+
+    const current = windows.at(-1);
+    if (current && time - current.start <= 1.25) {
+      current.end = time;
+      if (score > current.score) {
+        current.peak = time;
+        current.score = score;
+      }
+    } else {
+      windows.push({ start: time, peak: time, end: time, score });
+    }
+  }
+
+  windows.sort((first, second) => second.score - first.score || first.start - second.start);
+  const first = windows[0];
+  if (!first) return [];
+  const second = windows.find(window => Math.abs(window.start - first.start) >= 4);
+  return second ? [first, second] : [first];
+}
+
+async function evidenceTimes(input, duration, options) {
+  const distributedCount = Math.min(10, Math.max(6, Math.ceil(duration / 20)));
+  // Short sources already have at least one sample per second.
+  const windows = duration > distributedCount ? await findSceneWindows(input, duration, options) : [];
+  const times = [];
+  for (const { start, peak, end } of windows) {
+    if (start > 0) times.push(Math.max(0, start - .35));
+    times.push(peak);
+    const after = Math.min(duration - .2, Math.max(peak + .75, end + .35));
+    if (after > end) times.push(after);
+  }
+  const contextCount = Math.min(distributedCount, 12 - times.length);
+  for (let index = 0; index < contextCount; index++) {
+    const time = (index + .5) * duration / contextCount;
+    if (times.every(nearby => Math.abs(nearby - time) >= .2)) times.push(time);
+  }
+  return [...new Set(times)].sort((first, second) => first - second);
+}
+
 export async function extractEvidence({ inputPath, workDir, duration, signal, hasAudio }) {
   await mkdir(workDir, { recursive: true });
   const cwd = resolve(workDir);
@@ -120,10 +179,9 @@ export async function extractEvidence({ inputPath, workDir, duration, signal, ha
     ], { cwd, signal });
   }
 
-  const count = Math.min(10, Math.max(6, Math.ceil(duration / 20)));
+  const times = await evidenceTimes(input, duration, { cwd, signal });
   const frames = [];
-  for (let index = 0; index < count; index++) {
-    const time = (index + 0.5) * duration / count;
+  for (const [index, time] of times.entries()) {
     const path = join(cwd, 'evidence-frame-' + index + '.jpg');
     await run('ffmpeg', [
       '-nostdin', '-y', ...SOURCE_OPTIONS, '-ss', seconds(time), '-i', input,

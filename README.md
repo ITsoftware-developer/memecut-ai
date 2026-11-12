@@ -1,6 +1,6 @@
 # MemeCut AI v0.2
 
-MemeCut AI is een lokale editor voor langere YouTube-gamingvideo's. De AI-regisseur gebruikt een transcript met tijdcodes en geselecteerde gameplayframes om maximaal drie edits te kiezen. Iedere edit kan een originele memeafbeelding, tekst, zoom en een kort geluid bevatten. Op de tijdlijn kun je edits en cuts aanpassen. FFmpeg maakt een 16:9 MP4 van de bewaarde gameplayfragmenten.
+MemeCut AI is een lokale editor voor langere YouTube-gamingvideo's. De AI-regisseur gebruikt een transcript met tijdcodes en maximaal twaalf gameplayframes om maximaal drie edits te kiezen. De beeldselectie combineert verspreide frames met beelden rond maximaal twee opvallende beeldwissels. Iedere edit kan een originele memeafbeelding, tekst, zoom en een kort geluid bevatten. Op de tijdlijn kun je edits en cuts aanpassen. FFmpeg maakt een 16:9 MP4 van de bewaarde gameplayfragmenten.
 
 ## Lokaal starten
 
