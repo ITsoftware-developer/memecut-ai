@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111019">
+  <meta name="description" content="MemeCut AI, een interactieve gamingeditor voor YouTube-montages.">
+  <title>MemeCut AI — Montage</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./icons.js" defer></script>
+  <script src="./workflow.js" defer></script>
+  <script src="./editor.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html" aria-label="MemeCut AI startscherm">
+      <span class="brand-icon" data-icon="logo" data-size="21"></span>
+      <span>MemeCut<span class="brand-ai"> AI</span></span>
+    </a>
+    <div class="top-content">
+      <div class="breadcrumb"><span data-icon="folder" data-size="16"></span><span>Werkruimte</span><span data-icon="chevron-right" data-size="13"></span><strong>Montage</strong></div>
+      <div class="top-actions">
+        <span class="local-status"><span></span>Lokaal project</span>
+        <button class="button primary" id="open-export"><span data-icon="download" data-size="16"></span>Exporteren</button>
+      </div>
+    </div>
+  </header>
+  <div class="shell">
+    <aside class="sidebar" aria-label="Werkruimte">
+      <div class="side-main">
+        <button class="button import-button" id="open-import"><span data-icon="plus" data-size="18"></span>Gameplay importeren</button>
+        <p class="side-label">Werkruimte</p>
+        <nav class="side-nav" aria-label="Onderdelen">
+          <button class="nav-item active" id="nav-editor" aria-current="page"><span data-icon="clapperboard" data-size="18"></span>Montage</button>
+          <button class="nav-item" id="open-library"><span data-icon="library" data-size="18"></span>Memebibliotheek</button>
+        </nav>
+        <p class="side-label project-label">Project</p>
+        <button class="project-tile" id="open-demo" title="Voorbeeldproject opnieuw laden">
+          <span class="project-art"><img src="./assets/lava.png" alt=""></span>
+          <span><strong>Minecraft-demo</strong><small>Voorbeeldproject</small></span>
+          <span class="project-arrow" data-icon="chevron-right" data-size="13"></span>
+        </button>
+      </div>
+      <div class="side-footer">
+        <button class="nav-item help-button" id="open-help"><span data-icon="circle-help" data-size="17"></span>Hulp &amp; sneltoetsen</button>
+      </div>
+    </aside>
+    <main class="workspace" id="workspace">
+      <section class="project-heading" aria-labelledby="project-title">
+        <div>
+          <div class="project-eyebrow"><span data-icon="film" data-size="14"></span><span id="project-kind">Voorbeeldproject</span></div>
+          <h1 id="project-title">Minecraft, maar alles gaat mis</h1>
+          <div class="project-meta"><span id="project-filename">minecraft-lava-run.mp4</span><span class="meta-dot"></span><span id="project-duration">05:12</span></div>
+        </div>
+        <span class="format-chip"><span data-icon="monitor" data-size="15"></span><span id="project-format">YouTube · 16:9</span></span>
+      </section>
+
+      <div class="editing-grid">
+        <section class="panel preview" aria-label="Videovoorbeeld">
+          <div class="panel-heading preview-heading">
+            <h2><span data-icon="play" data-size="16"></span>Voorbeeld</h2>
+            <div class="segmented" aria-label="Voorbeeldmodus">
+              <button id="edited-mode" aria-pressed="true">Bewerkt</button>
+              <button id="original-mode" aria-pressed="false">Origineel</button>
+            </div>
+          </div>
+          <div class="player-stage" id="player-stage">
+            <div class="screen" id="screen">
+              <img id="demo-image" src="./assets/lava.png" alt="Minecraft-demobeeld met een lavapoel en een diamanten houweel">
+              <video id="player-video" playsinline preload="metadata" hidden></video>
+              <span class="caption-overlay" id="preview-caption" aria-hidden="true"></span>
+            </div>
+            <div class="stage-tags"><span id="screen-tag" class="screen-tag"><span></span>DEMO</span></div>
+          </div>
+          <div class="player-controls">
+            <div class="transport">
+              <button class="icon-button" id="previous-moment" aria-label="Vorig moment" title="Vorig moment"><span data-icon="skip-back" data-size="17"></span></button>
+              <button class="icon-button play-button" id="play-toggle" aria-label="Afspelen" title="Afspelen of pauzeren (spatie)"><span data-icon="play" data-size="18"></span></button>
+              <button class="icon-button" id="next-moment" aria-label="Volgend moment" title="Volgend moment"><span data-icon="skip-forward" data-size="17"></span></button>
+            </div>
+            <div class="player-time"><span id="current-time">00:12.8</span><span class="time-slash">/</span><span id="total-time">05:12</span></div>
+            <div class="player-options">
+              <button class="icon-button" id="mute-toggle" aria-label="Dempen" aria-pressed="false" title="Dempen"><span data-icon="volume" data-size="18"></span></button>
+              <button class="icon-button" id="fullscreen" aria-label="Volledig scherm" title="Volledig scherm"><span data-icon="maximize" data-size="17"></span></button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel director" aria-labelledby="director-title">
+          <div class="panel-heading director-heading">
+            <h2 id="director-title"><span class="director-spark" data-icon="sparkles" data-size="17"></span>AI-regisseur</h2>
+            <span class="count-badge" id="moments-count">4 momenten</span>
+          </div>
+          <p class="director-intro" id="director-intro">Zo is de demo gemonteerd. Kies een moment om de edit te bekijken.</p>
+          <div class="moment-list" id="moment-list"></div>
+          <div class="edit-reason" id="edit-reason" hidden>
+            <h3><span data-icon="sparkles" data-size="13"></span>Waarom deze edit?</h3>
+            <p id="edit-reason-text"></p>
+          </div>
+          <div class="director-footer">
+            <button class="button director-button" id="analyze"><span data-icon="sparkles" data-size="16"></span><span id="analyze-label">Eigen gameplay analyseren</span></button>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel timeline-panel" aria-labelledby="timeline-title">
+        <div class="panel-heading timeline-heading">
+          <h2 id="timeline-title"><span data-icon="layers" data-size="16"></span>Tijdlijn</h2>
+          <div class="timeline-options">
+            <button class="button add-moment" id="add-moment"><span data-icon="plus" data-size="15"></span><span>Moment toevoegen</span></button>
+            <div class="timeline-zoom" aria-label="Tijdlijnzoom">
+              <button class="icon-button" id="timeline-zoom-out" aria-label="Uitzoomen" title="Uitzoomen"><span data-icon="zoom-out" data-size="16"></span></button>
+              <span id="zoom-level">1×</span>
+              <button class="icon-button" id="timeline-zoom-in" aria-label="Inzoomen" title="Inzoomen"><span data-icon="zoom-in" data-size="16"></span></button>
+            </div>
+          </div>
+        </div>
+        <div class="timeline-body">
+          <div class="track-labels">
+            <div class="ruler-label"><span data-icon="clock" data-size="14"></span></div>
+            <div class="track-label"><span data-icon="film" data-size="16"></span>Gameplay</div>
+            <div class="track-label"><span data-icon="sparkles" data-size="16"></span>Memes</div>
+            <div class="track-label"><span data-icon="type" data-size="16"></span>Tekst</div>
+            <div class="track-label"><span data-icon="waveform" data-size="16"></span>Geluid</div>
+          </div>
+          <div class="timeline-scroll" id="timeline-scroll">
+            <div class="timeline-content" id="timeline-content">
+              <div id="timeline-ruler" class="ruler" role="slider" tabindex="0" aria-label="Afspeelpositie" aria-valuemin="0" aria-valuemax="312" aria-valuenow="12.8"></div>
+              <div class="track gameplay-track" id="gameplay-track"><div class="gameplay-strip" id="gameplay-strip"><span data-icon="film" data-size="14"></span><span id="gameplay-label">minecraft-lava-run.mp4</span></div></div>
+              <div class="track" id="meme-track"></div>
+              <div class="track" id="text-track"></div>
+              <div class="track" id="sound-track"></div>
+              <div class="playhead" id="playhead" aria-hidden="true"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <div class="status-line" id="project-status" role="status"><span></span>Voorbeeld geladen</div>
+    </main>
+  </div>
+
+  <dialog id="import-dialog" aria-labelledby="import-title">
+    <div class="dialog-heading"><h2 id="import-title">Gameplay importeren</h2><button class="icon-button" data-close aria-label="Sluiten"><span data-icon="x"></span></button></div>
+    <p>Kies een gameplayvideo van 2–10 minuten. In dit prototype worden video en geluid lokaal verwerkt.</p>
+    <label class="dropzone" id="dropzone">
+      <span class="drop-icon" data-icon="upload" data-size="25"></span>
+      <strong id="drop-label">Kies een video of sleep hem hierheen</strong>
+      <small>MP4, MOV of WebM, afhankelijk van je browser</small>
+      <input id="file-input" type="file" accept="video/*,.mp4,.mov,.webm">
+    </label>
+    <p class="dialog-status" id="import-status" role="status"></p>
+  </dialog>
+
+  <dialog id="library-dialog" aria-labelledby="library-title">
+    <div class="dialog-heading"><h2 id="library-title">Memebibliotheek</h2><button class="icon-button" data-close aria-label="Sluiten"><span data-icon="x"></span></button></div>
+    <p>Vijf reactiepresets met geanimeerde tekst, zoom en een eigen geluidseffect.</p>
+    <div class="library-list" id="library-list"></div>
+  </dialog>
+
+  <dialog id="moment-dialog" aria-labelledby="moment-title">
+    <div class="dialog-heading"><h2 id="moment-title">Moment aanpassen</h2><button class="icon-button" data-close aria-label="Sluiten"><span data-icon="x"></span></button></div>
+    <p id="moment-description"></p>
+    <form id="moment-form">
+      <label>Reactiepreset<select id="preset-select"></select></label>
+      <label>Tekst in beeld<input id="caption-input" type="text" maxlength="48" autocomplete="off"></label>
+      <div class="form-row">
+        <label>Start (seconden)<input id="moment-start" type="number" min="0" step="0.1" required></label>
+        <label>Duur (seconden)<input id="moment-duration" type="number" min="0.2" max="10" step="0.1" required></label>
+      </div>
+      <div class="form-row checkbox-row">
+        <label><input id="sound-enabled" type="checkbox"> Geluidseffect</label>
+        <label><input id="moment-enabled" type="checkbox"> In montage opnemen</label>
+      </div>
+      <p class="dialog-status" id="moment-status" role="status"></p>
+      <div class="dialog-actions"><button class="button subtle" type="button" data-close>Annuleren</button><button class="button primary" type="submit">Opslaan</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="export-dialog" aria-labelledby="export-title">
+    <div class="dialog-heading"><h2 id="export-title">Montage exporteren</h2><button class="icon-button" data-close aria-label="Sluiten"><span data-icon="x"></span></button></div>
+    <p id="export-description"></p>
+    <progress id="export-progress" max="1" value="0" hidden></progress>
+    <p class="dialog-status" id="export-status" role="status"></p>
+    <div class="dialog-actions export-actions">
+      <button class="button subtle" id="download-plan"><span data-icon="download" data-size="16"></span>Montageplan (.json)</button>
+      <button class="button primary" id="render-video"><span data-icon="film" data-size="16"></span><span id="render-label">Video renderen</span></button>
+      <button class="button subtle" id="cancel-render" hidden>Render annuleren</button>
+    </div>
+  </dialog>
+
+  <dialog id="help-dialog" aria-labelledby="help-title">
+    <div class="dialog-heading"><h2 id="help-title">Hulp &amp; sneltoetsen</h2><button class="icon-button" data-close aria-label="Sluiten"><span data-icon="x"></span></button></div>
+    <p>De Minecraft-demo gebruikt een stilstaand beeld en vier vooraf ingestelde edits. Bij eigen gameplay stelt dit prototype momenten voor op basis van audiopieken. Je kunt momenten aanpassen, uitschakelen en exporteren.</p>
+    <dl class="shortcuts"><dt><kbd>Spatie</kbd></dt><dd>Afspelen of pauzeren</dd><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Door de tijdlijn bewegen</dd><dt><kbd>Esc</kbd></dt><dd>Dialoog sluiten</dd></dl>
+  </dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>
